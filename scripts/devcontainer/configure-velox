@@ -80,7 +80,16 @@ EXTRA_CMAKE_FLAGS+=" -DDuckDB_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dfaiss_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dsimdjson_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -DFastFloat_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -Dfolly_SOURCE=BUNDLED"
+# Use system folly if installed by build-folly, otherwise build from source
+FOLLY_PREFIX="${FOLLY_PREFIX:-/opt/folly}"
+if [[ -f "${FOLLY_PREFIX}/lib/cmake/folly/folly-config.cmake" ]]; then
+    echo "Found system folly at: ${FOLLY_PREFIX}"
+    EXTRA_CMAKE_FLAGS+=" -Dfolly_SOURCE=SYSTEM"
+    EXTRA_CMAKE_FLAGS+=" -DCMAKE_PREFIX_PATH=${FOLLY_PREFIX}"
+else
+    echo "No system folly found, will build from source (run build-folly first for presto support)"
+    EXTRA_CMAKE_FLAGS+=" -Dfolly_SOURCE=BUNDLED"
+fi
 EXTRA_CMAKE_FLAGS+=" -Dabsl_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -DgRPC_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dxsimd_SOURCE=BUNDLED"

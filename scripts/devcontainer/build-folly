@@ -1,0 +1,98 @@
+#!/bin/bash
+# Build and install folly as a shared system library.
+# Must run before build-velox and build-presto so both can find_package(folly).
+# Usage: build-folly [--prefix DIR]
+
+set -euo pipefail
+
+FOLLY_VERSION="v2026.01.05.00"
+FOLLY_SHA256="SHA256=8b41494b664fcde3d02f652d6a27381ec5e938ef58cf986d8ce4958d424af101"
+FOLLY_URL="https://github.com/facebook/folly/releases/download/${FOLLY_VERSION}/folly-${FOLLY_VERSION}.tar.gz"
+
+INSTALL_PREFIX="${INSTALL_PREFIX:-/opt/folly}"
+BUILD_DIR="/tmp/folly-build"
+NUM_THREADS="${NUM_THREADS:-$(nproc --all --ignore=1)}"
+
+usage() {
+    cat <<EOF
+Usage: build-folly [OPTIONS]
+
+Build and install folly ${FOLLY_VERSION} as a shared system library.
+Run this once before build-velox or build-presto.
+
+Options:
+  --prefix DIR      Install prefix (default: /opt/folly)
+  -j, --jobs N      Number of parallel jobs (default: nproc - 1)
+  -h, --help        Show this help message
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --prefix) INSTALL_PREFIX="$2"; shift 2 ;;
+        -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+echo "=== Building Folly ${FOLLY_VERSION} ==="
+echo "Install prefix: ${INSTALL_PREFIX}"
+echo "Build dir:      ${BUILD_DIR}"
+echo "Threads:        ${NUM_THREADS}"
+echo ""
+
+# Enable sccache if available
+export CMAKE_C_COMPILER_LAUNCHER="${CMAKE_C_COMPILER_LAUNCHER:-sccache}"
+export CMAKE_CXX_COMPILER_LAUNCHER="${CMAKE_CXX_COMPILER_LAUNCHER:-sccache}"
+
+rm -rf "${BUILD_DIR}"
+mkdir -p "${BUILD_DIR}"
+
+echo "Downloading folly ${FOLLY_VERSION}..."
+FOLLY_SRC="${BUILD_DIR}/src"
+mkdir -p "${FOLLY_SRC}"
+curl -fsSL "${FOLLY_URL}" | tar xz -C "${FOLLY_SRC}"
+
+# FastFloat is header-only; reuse from velox build tree or system
+FASTFLOAT_INCLUDE="${FASTFLOAT_INCLUDE_DIR:-}"
+if [[ -z "${FASTFLOAT_INCLUDE}" ]]; then
+    VELOX_FASTFLOAT="/opt/velox-build/release/_deps/fastfloat-src/include"
+    if [[ -d "${VELOX_FASTFLOAT}" ]]; then
+        FASTFLOAT_INCLUDE="${VELOX_FASTFLOAT}"
+    fi
+fi
+
+echo ""
+echo "Configuring..."
+
+cmake -B "${BUILD_DIR}/build" -S "${FOLLY_SRC}" \
+    -GNinja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
+    -DCMAKE_CXX_STANDARD=20 \
+    -DCMAKE_CXX_FLAGS="-mavx2 -mfma -mavx -mf16c -mlzcnt -mbmi2" \
+    -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
+    -DBUILD_SHARED_LIBS=ON \
+    -DBUILD_TESTS=OFF \
+    -DBUILD_BENCHMARKS=OFF \
+    -DFOLLY_HAVE_INT128_T=ON \
+    ${FASTFLOAT_INCLUDE:+-DFASTFLOAT_INCLUDE_DIR="${FASTFLOAT_INCLUDE}"}
+
+echo ""
+echo "Building..."
+
+cmake --build "${BUILD_DIR}/build" -j "${NUM_THREADS}"
+
+echo ""
+echo "Installing to ${INSTALL_PREFIX}..."
+
+cmake --install "${BUILD_DIR}/build" --prefix "${INSTALL_PREFIX}"
+
+echo ""
+echo "Cleaning up build directory..."
+rm -rf "${BUILD_DIR}"
+
+echo ""
+echo "=== Folly installed to ${INSTALL_PREFIX} ==="
+echo "Set CMAKE_PREFIX_PATH=${INSTALL_PREFIX} or folly_DIR=${INSTALL_PREFIX}/lib/cmake/folly"
