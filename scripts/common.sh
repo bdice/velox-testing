@@ -19,12 +19,14 @@ validate_docker_image() {
 # transient registry errors (ghcr.io 502s, brief network blips).
 #
 # Usage: docker_pull_with_retry IMAGE
-# Override attempt count / initial backoff via DOCKER_PULL_ATTEMPTS and
-# DOCKER_PULL_BACKOFF_INITIAL (defaults: 5 attempts, 10s initial, doubling).
+# Override attempt count / backoff via DOCKER_PULL_ATTEMPTS,
+# DOCKER_PULL_BACKOFF_INITIAL, and DOCKER_PULL_BACKOFF_MAX (defaults: 7
+# attempts, 10s initial, doubling up to 120s).
 docker_pull_with_retry() {
   local image=$1
-  local attempts=${DOCKER_PULL_ATTEMPTS:-5}
+  local attempts=${DOCKER_PULL_ATTEMPTS:-7}
   local delay=${DOCKER_PULL_BACKOFF_INITIAL:-10}
+  local max_delay=${DOCKER_PULL_BACKOFF_MAX:-120}
   local i
   for ((i = 1; i <= attempts; i++)); do
     if docker pull "${image}"; then
@@ -34,6 +36,9 @@ docker_pull_with_retry() {
       echo "docker pull '${image}' failed (attempt ${i}/${attempts}); retrying in ${delay}s..."
       sleep "${delay}"
       delay=$((delay * 2))
+      if (( delay > max_delay )); then
+        delay=${max_delay}
+      fi
     fi
   done
   echo "ERROR: docker pull '${image}' failed after ${attempts} attempts" >&2
