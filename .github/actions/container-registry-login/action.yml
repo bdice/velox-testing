@@ -17,11 +17,15 @@ inputs:
   max-attempts:
     description: Maximum login attempts.
     required: false
-    default: '5'
+    default: '7'
   initial-delay-seconds:
     description: Initial retry delay in seconds.
     required: false
     default: '5'
+  max-delay-seconds:
+    description: Maximum retry delay in seconds.
+    required: false
+    default: '120'
 
 runs:
   using: composite
@@ -34,6 +38,7 @@ runs:
         PASSWORD: ${{ inputs.password || github.token }}
         MAX_ATTEMPTS: ${{ inputs.max-attempts }}
         INITIAL_DELAY_SECONDS: ${{ inputs.initial-delay-seconds }}
+        MAX_DELAY_SECONDS: ${{ inputs.max-delay-seconds }}
       run: |
         delay_seconds="${INITIAL_DELAY_SECONDS}"
         for attempt in $(seq 1 "${MAX_ATTEMPTS}"); do
@@ -47,4 +52,7 @@ runs:
           echo "Container registry login failed (attempt ${attempt}/${MAX_ATTEMPTS}); retrying in ${delay_seconds}s..." >&2
           sleep "${delay_seconds}"
           delay_seconds=$((delay_seconds * 2))
+          if [ "${delay_seconds}" -gt "${MAX_DELAY_SECONDS}" ]; then
+            delay_seconds="${MAX_DELAY_SECONDS}"
+          fi
         done
