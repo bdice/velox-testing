@@ -10,6 +10,8 @@ manifest_base_tags=()
 create_manifest_alias() {
   local tag="$1"
   local final_tag="$2"
+  local attempts=${MANIFEST_CREATE_ATTEMPTS:-5}
+  local delay=${MANIFEST_CREATE_BACKOFF_INITIAL:-5}
 
   local architectures
   read -ra architectures <<< "${MANIFEST_ARCHITECTURE:-amd64 arm64}"
@@ -21,8 +23,20 @@ create_manifest_alias() {
   done
 
   echo "Creating multi-arch manifest: ${final_tag}"
-  docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${final_tag}" \
-    "${sources[@]}"
+  local attempt
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    if docker buildx imagetools create \
+      -t "${REGISTRY}/${IMAGE_NAME}:${final_tag}" "${sources[@]}"; then
+      return 0
+    fi
+    if (( attempt < attempts )); then
+      echo "Manifest creation failed (attempt ${attempt}/${attempts}); retrying in ${delay}s..." >&2
+      sleep "${delay}"
+      delay=$((delay * 2))
+    fi
+  done
+  echo "Manifest creation failed after ${attempts} attempts." >&2
+  return 1
 }
 
 resolve_run_id_suffix() {
